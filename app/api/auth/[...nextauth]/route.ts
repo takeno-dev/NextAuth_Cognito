@@ -26,13 +26,13 @@ const handler = NextAuth({
           });
 
           const response = await client.send(command);
-          console.log(response);
           
-          if (response.AuthenticationResult) {
+          if (response.AuthenticationResult?.IdToken) {
             return {
               id: credentials?.email || "",
               email: credentials?.email,
-              accessToken: response.AuthenticationResult.AccessToken,
+              idToken: response.AuthenticationResult.IdToken,
+              _tokenInfo: response.AuthenticationResult,
             };
           }
           return null;
@@ -43,12 +43,37 @@ const handler = NextAuth({
       }
     })
   ],
+  callbacks: {
+    async jwt({ token, user, account, trigger }) {
+      console.log('JWT Callback:', { token, user, account, trigger });
+      
+      if (user) {
+        token.idToken = user.idToken;
+        token.email = user.email;
+      }
+      return token;
+    },
+    async session({ session, token, user }) {
+      console.log('Session Callback:', { session, token, user });
+      
+      return {
+        ...session,
+        idToken: token.idToken,
+        user: {
+          ...session.user,
+          email: token.email,
+        }
+      };
+    }
+  },
+  debug: true,
   pages: {
     signIn: '/login',
     error: '/login',
   },
   session: {
     strategy: "jwt",
+    maxAge: 30 * 24 * 60 * 60,
   },
 });
 
