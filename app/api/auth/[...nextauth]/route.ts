@@ -1,6 +1,12 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { CognitoIdentityProviderClient, InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
+import { Redis } from 'ioredis';
+
+const redis = new Redis({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: Number(process.env.REDIS_PORT) || 6379,
+});
 
 const client = new CognitoIdentityProviderClient({
   region: process.env.AWS_REGION,
@@ -28,11 +34,20 @@ const handler = NextAuth({
           const response = await client.send(command);
           
           if (response.AuthenticationResult?.IdToken) {
+            // Redisにトークンを保存
+            const sessionId = crypto.randomUUID();
+            await redis.setex(
+              `session:${sessionId}`,
+              30 * 24 * 60 * 60, // 30日
+              JSON.stringify({
+                idToken: response.AuthenticationResult.IdToken,
+                email: credentials?.email
+              })
+            );
+
             return {
-              id: credentials?.email || "",
+              id: sessionId,
               email: credentials?.email,
-              idToken: response.AuthenticationResult.IdToken,
-              _tokenInfo: response.AuthenticationResult,
             };
           }
           return null;
@@ -44,36 +59,31 @@ const handler = NextAuth({
     })
   ],
   callbacks: {
-    async jwt({ token, user, account, trigger }) {
-      console.log('JWT Callback:', { token, user, account, trigger });
-      
+    async session({ session, token }) {
+      if (token.sub) {
+        const sessionData = await redis.get(`session:${token.sub}`);
+        if (sessionData) {
+          const { idToken, email } = JSON.parse(sessionData);
+          session.idToken = idToken;
+          session.user = { email };
+        }
+      }
+      return session;
+    },
+    async jwt({ token, user }) {
       if (user) {
-        token.idToken = user.idToken;
-        token.email = user.email;
+        token.sub = user.id;
       }
       return token;
-    },
-    async session({ session, token, user }) {
-      console.log('Session Callback:', { session, token, user });
-      
-      return {
-        ...session,
-        idToken: token.idToken,
-        user: {
-          ...session.user,
-          email: token.email,
-        }
-      };
     }
   },
-  debug: true,
   pages: {
     signIn: '/login',
     error: '/login',
   },
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: 30 * 24 * 60 * 60, // 30日
   },
 });
 
