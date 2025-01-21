@@ -34,11 +34,10 @@ const handler = NextAuth({
           const response = await client.send(command);
           
           if (response.AuthenticationResult?.IdToken) {
-            // Redisにトークンを保存
             const sessionId = crypto.randomUUID();
             await redis.setex(
               `session:${sessionId}`,
-              30 * 24 * 60 * 60, // 30日
+              60 * 60, // 1時間
               JSON.stringify({
                 idToken: response.AuthenticationResult.IdToken,
                 email: credentials?.email
@@ -59,6 +58,12 @@ const handler = NextAuth({
     })
   ],
   callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.sub = user.id;
+      }
+      return token;
+    },
     async session({ session, token }) {
       if (token.sub) {
         const sessionData = await redis.get(`session:${token.sub}`);
@@ -69,12 +74,6 @@ const handler = NextAuth({
         }
       }
       return session;
-    },
-    async jwt({ token, user }) {
-      if (user) {
-        token.sub = user.id;
-      }
-      return token;
     }
   },
   pages: {
@@ -83,7 +82,7 @@ const handler = NextAuth({
   },
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30日
+    maxAge: 60 * 60, // 1時間
   },
 });
 

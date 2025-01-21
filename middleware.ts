@@ -18,6 +18,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  if (token?.sub) {
+    const response = NextResponse.next();
+    response.cookies.set('session-id', token.sub, {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 60 * 60 // 1時間
+    });
+    return response;
+  }
+
   return NextResponse.next();
 }
 
